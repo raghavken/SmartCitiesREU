@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dual Motor PWM Console</title>
+  <style>
+    :root {
+      --bg: #f4f5f2;
+      --panel: #ffffff;
+      --panel-soft: #f8faf7;
+      --ink: #17201b;
+      --muted: #667069;
+      --line: #d9ded7;
+      --teal: #008c95;
+      --teal-dark: #006a71;
+      --amber: #d89000;
+      --red: #d8422f;
+      --green: #2f9b55;
+      --shadow: 0 18px 50px rgba(29, 40, 35, 0.10);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.84), rgba(255,255,255,0.58)),
+        var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button,
+    select,
+    input {
+      font: inherit;
+    }
+
+    .app {
+      width: min(1320px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 28px 0 34px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .title {
+      display: grid;
+      gap: 4px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0;
+      font-weight: 750;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--muted);
+      font-size: 14px;
+      box-shadow: 0 8px 24px rgba(29, 40, 35, 0.06);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9ba39d;
+    }
+
+    .status-pill.running .dot {
+      background: var(--green);
+      box-shadow: 0 0 0 5px rgba(47, 155, 85, 0.14);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px 18px 0;
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #354039;
+    }
+
+    .panel-note {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .panel-body {
+      padding: 18px;
+      min-width: 0;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+      margin-bottom: 14px;
+      min-width: 0;
+    }
+
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    label {
+      color: #3d4841;
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    input,
+    select {
+      width: 100%;
+      min-width: 0;
+      height: 40px;
+      border: 1px solid #cfd6d0;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 0 11px;
+      outline: none;
+    }
+
+    select {
+      text-overflow: ellipsis;
+    }
+
+    input:focus,
+    select:focus {
+      border-color: var(--teal);
+      box-shadow: 0 0 0 4px rgba(0, 140, 149, 0.13);
+    }
+
+    input[type="range"] {
+      height: 32px;
+      padding: 0;
+      border: 0;
+      box-shadow: none;
+      accent-color: var(--teal);
+      background: transparent;
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .btn {
+      min-width: 0;
+      height: 40px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 0 13px;
+      cursor: pointer;
+      font-weight: 720;
+      transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      cursor: default;
+      opacity: 0.55;
+      transform: none;
+    }
+
+    .btn.primary {
+      background: var(--teal);
+      color: white;
+      box-shadow: 0 10px 22px rgba(0, 140, 149, 0.24);
+    }
+
+    .btn.primary:hover {
+      background: var(--teal-dark);
+    }
+
+    .btn.secondary {
+      background: #edf1ed;
+      color: #24302a;
+      border-color: #d7ded8;
+    }
+
+    .btn.danger {
+      background: #fff3f0;
+      color: var(--red);
+      border-color: #f1c9c1;
+    }
+
+    .command-preview {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid #dfe5df;
+      border-radius: 6px;
+      background: var(--panel-soft);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #223027;
+      min-height: 42px;
+      max-width: 100%;
+      overflow: hidden;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .telemetry {
+      display: grid;
+      gap: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      color: #26332b;
+      min-width: 0;
+    }
+
+    .telemetry-row {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 10px;
+      align-items: baseline;
+      min-width: 0;
+    }
+
+    .telemetry-key {
+      color: var(--muted);
+      font-family: inherit;
+    }
+
+    .telemetry-row span:last-child {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .motor-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .motor-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel-soft);
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .motor-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .motor-name {
+      font-size: 18px;
+      font-weight: 780;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .motor-number {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .pwm-readout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 82px;
+      gap: 12px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .pwm-value {
+      font-size: 56px;
+      line-height: 0.95;
+      font-weight: 820;
+      letter-spacing: 0;
+    }
+
+    .pwm-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .bar {
+      height: 14px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e4e9e4;
+      border: 1px solid #d3dad4;
+    }
+
+    .bar-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--green), var(--amber), var(--red));
+      transition: width 80ms linear;
+    }
+
+    .range-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 82px;
+      gap: 12px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .mini-pedal {
+      position: relative;
+      min-height: 124px;
+      border: 1px solid #cfd6d0;
+      border-radius: var(--radius);
+      background: #fff;
+      cursor: pointer;
+      touch-action: none;
+      overflow: hidden;
+      box-shadow: inset 0 -16px 30px rgba(23, 32, 27, 0.05);
+    }
+
+    .mini-pedal::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 14px;
+      width: 92px;
+      height: 56px;
+      transform: translateX(-50%) rotateX(12deg);
+      transform-origin: bottom center;
+      border-radius: 16px;
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.13) 0 5px, rgba(0,0,0,0) 5px 13px),
+        linear-gradient(140deg, #444f48, #1f2923);
+      box-shadow: 0 14px 22px rgba(23, 32, 27, 0.22);
+      transition: transform 90ms ease, top 90ms ease, box-shadow 90ms ease;
+    }
+
+    .mini-pedal::after {
+      content: "Hold pedal";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 16px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+
+    .mini-pedal.pressed::before {
+      top: 24px;
+      transform: translateX(-50%) rotateX(34deg) scaleY(0.94);
+      box-shadow: 0 8px 16px rgba(23, 32, 27, 0.16);
+    }
+
+    .pedal-stage {
+      min-height: 420px;
+      display: grid;
+      grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+      gap: 26px;
+      align-items: center;
+    }
+
+    .pedal-area {
+      display: grid;
+      gap: 16px;
+      justify-items: center;
+    }
+
+    .pedal {
+      position: relative;
+      width: min(100%, 300px);
+      height: 340px;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      touch-action: none;
+      outline: none;
+      perspective: 650px;
+    }
+
+    .pedal-base {
+      position: absolute;
+      left: 50%;
+      bottom: 10px;
+      width: 230px;
+      height: 42px;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: rgba(23, 32, 27, 0.18);
+      filter: blur(2px);
+    }
+
+    .pedal-arm {
+      position: absolute;
+      left: 50%;
+      bottom: 52px;
+      width: 54px;
+      height: 160px;
+      transform: translateX(-50%) rotate(-8deg);
+      border-radius: 22px;
+      background: linear-gradient(90deg, #6a736c, #3a433d);
+      box-shadow: inset 10px 0 18px rgba(255,255,255,0.18);
+    }
+
+    .pedal-face {
+      position: absolute;
+      left: 50%;
+      bottom: 146px;
+      width: 176px;
+      height: 190px;
+      transform: translateX(-50%) rotateX(12deg) rotate(-8deg);
+      transform-origin: bottom center;
+      border-radius: 24px 24px 18px 18px;
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.13) 0 8px, rgba(0,0,0,0) 8px 18px),
+        linear-gradient(140deg, #444f48, #1f2923 62%, #111814);
+      border: 1px solid rgba(255,255,255,0.20);
+      box-shadow:
+        inset 0 16px 32px rgba(255,255,255,0.08),
+        inset 0 -24px 28px rgba(0,0,0,0.28),
+        0 22px 32px rgba(23, 32, 27, 0.28);
+      transition: transform 90ms ease, bottom 90ms ease, box-shadow 90ms ease;
+    }
+
+    .pedal-face::after {
+      content: "PWM";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 18px;
+      color: rgba(255,255,255,0.72);
+      font-size: 18px;
+      font-weight: 820;
+      letter-spacing: 0.12em;
+      text-align: center;
+    }
+
+    .pedal.pressed .pedal-face {
+      bottom: 118px;
+      transform: translateX(-50%) rotateX(34deg) rotate(-8deg) scaleY(0.96);
+      box-shadow:
+        inset 0 16px 32px rgba(255,255,255,0.08),
+        inset 0 -24px 28px rgba(0,0,0,0.34),
+        0 12px 20px rgba(23, 32, 27, 0.22);
+    }
+
+    .pedal:focus-visible .pedal-face {
+      outline: 4px solid rgba(0, 140, 149, 0.28);
+      outline-offset: 6px;
+    }
+
+    .pedal-caption {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .big-readouts {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .readout-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: baseline;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      min-width: 0;
+    }
+
+    .readout-name {
+      font-size: 17px;
+      font-weight: 760;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .readout-value {
+      font-size: 42px;
+      line-height: 1;
+      font-weight: 820;
+    }
+
+    .status-text {
+      color: var(--muted);
+      font-size: 13px;
+      min-height: 18px;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 980px) {
+      .app {
+        width: min(100vw - 24px, 760px);
+        padding-top: 18px;
+      }
+
+      .topbar,
+      .layout,
+      .motor-grid,
+      .pedal-stage {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: start;
+      }
+
+      .button-row {
+        grid-template-columns: 1fr;
+      }
+
+      .pedal {
+        height: 300px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="title">
+        <h1>Dual Motor PWM Console</h1>
+        <div class="subtitle">Arduino Uno serial control at 115200 baud</div>
+      </div>
+      <div id="statusPill" class="status-pill">
+        <span class="dot"></span>
+        <span id="statusText">Idle</span>
+      </div>
+    </header>
+
+    <section class="layout">
+      <div class="stack">
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Serial</div>
+            <div class="panel-note">500 ms timeout</div>
+          </div>
+          <div class="panel-body">
+            <div class="field">
+              <label for="port">Port</label>
+              <select id="port"></select>
+            </div>
+            <div class="button-row">
+              <button id="runButton" class="btn primary">Connect</button>
+              <button id="stopButton" class="btn danger">Stop</button>
+              <button id="refreshButton" class="btn secondary">Scan</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Serial Command</div>
+            <div class="panel-note">LF terminated</div>
+          </div>
+          <div class="panel-body">
+            <div class="command-preview" id="commandPreview">electric_motor_pwm=0,internal_combustion_engine_pwm=0\n</div>
+            <div class="status-text" id="statusDetail">Waiting for connection.</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Serial Monitor</div>
+          </div>
+          <div class="panel-body telemetry" id="connectionReadout">
+            <div class="telemetry-row"><span class="telemetry-key">State</span><span>idle</span></div>
+            <div class="telemetry-row"><span class="telemetry-key">Sent</span><span></span></div>
+            <div class="telemetry-row"><span class="telemetry-key">Reply</span><span></span></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Motor Pedals</div>
+            <div class="panel-note">PWM range 0-255</div>
+          </div>
+          <div class="panel-body">
+            <div class="motor-grid">
+              <article class="motor-card">
+                <div class="motor-heading">
+                  <div class="motor-name">Electric Motor</div>
+                  <div class="motor-number">Motor 1</div>
+                </div>
+                <div class="pwm-readout">
+                  <div>
+                    <div id="m1Value" class="pwm-value">0</div>
+                    <div class="pwm-label">electric_motor_pwm</div>
+                  </div>
+                  <button id="m1Zero" class="btn secondary" type="button">Zero</button>
+                </div>
+                <div class="bar"><div id="m1Bar" class="bar-fill"></div></div>
+                <button id="m1Pedal" class="mini-pedal" type="button" aria-label="Increase electric motor PWM"></button>
+                <div class="range-wrap">
+                  <input id="m1Slider" type="range" min="0" max="255" step="1" value="0" />
+                  <input id="m1Input" type="number" min="0" max="255" step="1" value="0" />
+                </div>
+              </article>
+
+              <article class="motor-card">
+                <div class="motor-heading">
+                  <div class="motor-name">Internal Combustion Engine</div>
+                  <div class="motor-number">Motor 2</div>
+                </div>
+                <div class="pwm-readout">
+                  <div>
+                    <div id="m2Value" class="pwm-value">0</div>
+                    <div class="pwm-label">internal_combustion_engine_pwm</div>
+                  </div>
+                  <button id="m2Zero" class="btn secondary" type="button">Zero</button>
+                </div>
+                <div class="bar"><div id="m2Bar" class="bar-fill"></div></div>
+                <button id="m2Pedal" class="mini-pedal" type="button" aria-label="Increase internal combustion engine PWM"></button>
+                <div class="range-wrap">
+                  <input id="m2Slider" type="range" min="0" max="255" step="1" value="0" />
+                  <input id="m2Input" type="number" min="0" max="255" step="1" value="0" />
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Shared Accelerator</div>
+            <div class="panel-note">Press and hold to raise both</div>
+          </div>
+          <div class="panel-body pedal-stage">
+            <div class="pedal-area">
+              <button id="acceleratorPedal" class="pedal" type="button" aria-label="Increase both motor PWM values">
+                <span class="pedal-base"></span>
+                <span class="pedal-arm"></span>
+                <span class="pedal-face"></span>
+              </button>
+              <div class="pedal-caption">Hold the pedal to increase both motor PWM values. Release to keep the current output.</div>
+              <button id="allZero" class="btn danger" type="button">Zero Both Motors</button>
+            </div>
+            <div class="big-readouts">
+              <div class="readout-row">
+                <div class="readout-name">Electric Motor</div>
+                <div id="m1Big" class="readout-value">0</div>
+              </div>
+              <div class="readout-row">
+                <div class="readout-name">Internal Combustion Engine</div>
+                <div id="m2Big" class="readout-value">0</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      run: document.getElementById("runButton"),
+      stop: document.getElementById("stopButton"),
+      refresh: document.getElementById("refreshButton"),
+      port: document.getElementById("port"),
+      commandPreview: document.getElementById("commandPreview"),
+      status: document.getElementById("statusText"),
+      statusPill: document.getElementById("statusPill"),
+      statusDetail: document.getElementById("statusDetail"),
+      connectionReadout: document.getElementById("connectionReadout"),
+      m1Slider: document.getElementById("m1Slider"),
+      m1Input: document.getElementById("m1Input"),
+      m1Value: document.getElementById("m1Value"),
+      m1Big: document.getElementById("m1Big"),
+      m1Bar: document.getElementById("m1Bar"),
+      m1Zero: document.getElementById("m1Zero"),
+      m1Pedal: document.getElementById("m1Pedal"),
+      m2Slider: document.getElementById("m2Slider"),
+      m2Input: document.getElementById("m2Input"),
+      m2Value: document.getElementById("m2Value"),
+      m2Big: document.getElementById("m2Big"),
+      m2Bar: document.getElementById("m2Bar"),
+      m2Zero: document.getElementById("m2Zero"),
+      m2Pedal: document.getElementById("m2Pedal"),
+      allZero: document.getElementById("allZero"),
+      acceleratorPedal: document.getElementById("acceleratorPedal"),
+    };
+
+    const BAUD_RATE = 115200;
+    const LOOP_INTERVAL_MS = 20;
+    const TIMEOUT_MS = 500;
+    const MAX_PWM = 255;
+    const PEDAL_STEP = 3;
+    const PEDAL_INTERVAL_MS = 35;
+
+    let motor1Pwm = 0;
+    let motor2Pwm = 0;
+    let commandTimer = null;
+    let pedalTimer = null;
+    const holdTimers = new Map();
+
+    function requestJson(url, options = {}) {
+      return fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      }).then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.error || response.statusText);
+        }
+        return payload;
+      });
+    }
+
+    function clampPwm(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return 0;
+      return Math.max(0, Math.min(MAX_PWM, Math.round(number)));
+    }
+
+    function buildCommand() {
+      return `electric_motor_pwm=${motor1Pwm},internal_combustion_engine_pwm=${motor2Pwm}`;
+    }
+
+    function escapedLine(text) {
+      return String(text || "").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+    }
+
+    function updateUi(push = true) {
+      const m1Percent = (motor1Pwm / MAX_PWM) * 100;
+      const m2Percent = (motor2Pwm / MAX_PWM) * 100;
+
+      els.m1Slider.value = String(motor1Pwm);
+      els.m1Input.value = String(motor1Pwm);
+      els.m1Value.textContent = String(motor1Pwm);
+      els.m1Big.textContent = String(motor1Pwm);
+      els.m1Bar.style.width = `${m1Percent}%`;
+
+      els.m2Slider.value = String(motor2Pwm);
+      els.m2Input.value = String(motor2Pwm);
+      els.m2Value.textContent = String(motor2Pwm);
+      els.m2Big.textContent = String(motor2Pwm);
+      els.m2Bar.style.width = `${m2Percent}%`;
+
+      const command = buildCommand();
+      els.commandPreview.textContent = `${command}\\n`;
+      if (push) queueCommandUpdate(command);
+    }
+
+    function setMotorValues(nextMotor1, nextMotor2, push = true) {
+      motor1Pwm = clampPwm(nextMotor1);
+      motor2Pwm = clampPwm(nextMotor2);
+      updateUi(push);
+    }
+
+    function queueCommandUpdate(command = buildCommand()) {
+      clearTimeout(commandTimer);
+      commandTimer = setTimeout(() => {
+        requestJson("/api/command", {
+          method: "POST",
+          body: JSON.stringify({ command }),
+        }).catch((error) => {
+          els.statusDetail.textContent = error.message;
+        });
+      }, 60);
+    }
+
+    async function refreshPorts() {
+      const data = await requestJson("/api/ports");
+      const previous = els.port.value;
+      els.port.innerHTML = "";
+      for (const port of data.ports) {
+        const option = document.createElement("option");
+        option.value = port.device;
+        option.textContent = `${port.device} ${port.description && port.description !== "n/a" ? "- " + port.description : ""}`;
+        option.title = port.description;
+        els.port.appendChild(option);
+      }
+      if ([...els.port.options].some((option) => option.value === previous)) {
+        els.port.value = previous;
+      } else {
+        const preferred = [...els.port.options].find((option) =>
+          /usbmodem|usbserial|arduino/i.test(`${option.value} ${option.title}`)
+        );
+        if (preferred) els.port.value = preferred.value;
+      }
+      els.statusDetail.textContent = `Found ${data.ports.length} serial resource option(s).`;
+    }
+
+    async function connect() {
+      await requestJson("/api/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          port: els.port.value,
+          baud: BAUD_RATE,
+          command: buildCommand(),
+          intervalMs: LOOP_INTERVAL_MS,
+          timeoutMs: TIMEOUT_MS,
+          lineEnding: "lf",
+        }),
+      });
+      els.status.textContent = "Opening";
+      els.statusDetail.textContent = "Opening serial resource...";
+      els.run.disabled = true;
+    }
+
+    async function stopLoop() {
+      await requestJson("/api/stop", { method: "POST", body: "{}" });
+      els.status.textContent = "Stopped";
+      els.statusPill.classList.remove("running");
+      els.statusDetail.textContent = "Stop requested.";
+      els.run.disabled = false;
+    }
+
+    async function pollEvents() {
+      try {
+        const data = await requestJson("/api/events");
+        els.status.textContent = data.running ? "Connected" : "Idle";
+        els.statusPill.classList.toggle("running", data.running);
+        els.run.disabled = data.running;
+        els.statusDetail.textContent = data.status;
+        renderSerialReadout(data.running, data.lastTx, data.lastRx);
+
+        for (const event of data.events) {
+          if (event.type === "rx") {
+            renderSerialReadout(data.running, data.lastTx, event.raw);
+          } else if (event.type === "error") {
+            els.statusDetail.textContent = event.message;
+          }
+        }
+      } catch (error) {
+        els.status.textContent = "Offline";
+        els.statusPill.classList.remove("running");
+        els.statusDetail.textContent = `GUI polling error: ${error.message}`;
+      } finally {
+        setTimeout(pollEvents, 120);
+      }
+    }
+
+    function renderSerialReadout(running, lastTx, lastRx) {
+      els.connectionReadout.innerHTML = `
+        <div class="telemetry-row"><span class="telemetry-key">State</span><span>${running ? "running" : "idle"}</span></div>
+        <div class="telemetry-row"><span class="telemetry-key">Sent</span><span>${escapedLine(lastTx)}</span></div>
+        <div class="telemetry-row"><span class="telemetry-key">Reply</span><span>${escapedLine(lastRx)}</span></div>
+      `;
+    }
+
+    function startPedal() {
+      if (pedalTimer) return;
+      els.acceleratorPedal.classList.add("pressed");
+      setMotorValues(motor1Pwm + PEDAL_STEP, motor2Pwm + PEDAL_STEP);
+      pedalTimer = setInterval(() => {
+        setMotorValues(motor1Pwm + PEDAL_STEP, motor2Pwm + PEDAL_STEP);
+        if (motor1Pwm >= MAX_PWM && motor2Pwm >= MAX_PWM) stopPedal();
+      }, PEDAL_INTERVAL_MS);
+    }
+
+    function stopPedal() {
+      els.acceleratorPedal.classList.remove("pressed");
+      if (pedalTimer) {
+        clearInterval(pedalTimer);
+        pedalTimer = null;
+      }
+    }
+
+    function startHoldPedal(button, onStep) {
+      if (holdTimers.has(button)) return;
+      button.classList.add("pressed");
+      onStep();
+      holdTimers.set(button, setInterval(onStep, PEDAL_INTERVAL_MS));
+    }
+
+    function stopHoldPedal(button) {
+      button.classList.remove("pressed");
+      const timer = holdTimers.get(button);
+      if (timer) clearInterval(timer);
+      holdTimers.delete(button);
+    }
+
+    function bindHoldPedal(button, onStep) {
+      button.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        button.setPointerCapture(event.pointerId);
+        startHoldPedal(button, onStep);
+      });
+      button.addEventListener("pointerup", () => stopHoldPedal(button));
+      button.addEventListener("pointercancel", () => stopHoldPedal(button));
+      button.addEventListener("lostpointercapture", () => stopHoldPedal(button));
+      button.addEventListener("keydown", (event) => {
+        if (event.code === "Space" || event.code === "Enter") {
+          event.preventDefault();
+          startHoldPedal(button, onStep);
+        }
+      });
+      button.addEventListener("keyup", (event) => {
+        if (event.code === "Space" || event.code === "Enter") stopHoldPedal(button);
+      });
+    }
+
+    els.run.addEventListener("click", () => connect().catch((error) => {
+      els.statusDetail.textContent = error.message;
+      els.run.disabled = false;
+    }));
+    els.stop.addEventListener("click", () => stopLoop().catch((error) => {
+      els.statusDetail.textContent = error.message;
+    }));
+    els.refresh.addEventListener("click", () => refreshPorts().catch((error) => {
+      els.statusDetail.textContent = error.message;
+    }));
+
+    els.m1Slider.addEventListener("input", (event) => setMotorValues(event.target.value, motor2Pwm));
+    els.m1Input.addEventListener("input", (event) => setMotorValues(event.target.value, motor2Pwm));
+    els.m1Input.addEventListener("blur", (event) => setMotorValues(event.target.value, motor2Pwm));
+    els.m1Zero.addEventListener("click", () => setMotorValues(0, motor2Pwm));
+    bindHoldPedal(els.m1Pedal, () => setMotorValues(motor1Pwm + PEDAL_STEP, motor2Pwm));
+
+    els.m2Slider.addEventListener("input", (event) => setMotorValues(motor1Pwm, event.target.value));
+    els.m2Input.addEventListener("input", (event) => setMotorValues(motor1Pwm, event.target.value));
+    els.m2Input.addEventListener("blur", (event) => setMotorValues(motor1Pwm, event.target.value));
+    els.m2Zero.addEventListener("click", () => setMotorValues(motor1Pwm, 0));
+    bindHoldPedal(els.m2Pedal, () => setMotorValues(motor1Pwm, motor2Pwm + PEDAL_STEP));
+
+    els.allZero.addEventListener("click", () => setMotorValues(0, 0));
+
+    els.acceleratorPedal.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      els.acceleratorPedal.setPointerCapture(event.pointerId);
+      startPedal();
+    });
+    els.acceleratorPedal.addEventListener("pointerup", stopPedal);
+    els.acceleratorPedal.addEventListener("pointercancel", stopPedal);
+    els.acceleratorPedal.addEventListener("lostpointercapture", stopPedal);
+    els.acceleratorPedal.addEventListener("keydown", (event) => {
+      if (event.code === "Space" || event.code === "Enter") {
+        event.preventDefault();
+        startPedal();
+      }
+    });
+    els.acceleratorPedal.addEventListener("keyup", (event) => {
+      if (event.code === "Space" || event.code === "Enter") stopPedal();
+    });
+
+    updateUi(false);
+    refreshPorts().then(pollEvents).catch((error) => {
+      els.statusDetail.textContent = error.message;
+      pollEvents();
+    });
+  </script>
+</body>
+</html>
