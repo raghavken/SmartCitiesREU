@@ -34,12 +34,22 @@ electric_motor_pwm=128,internal_combustion_engine_pwm=64\n
 ```
 
 The app reads one Arduino reply line at a time and displays it in the serial
-monitor. Replies can be plain text; they do not need to be numeric.
+monitor. Replies can be plain text; they do not need to be numeric. Lines with
+`rpm=<number>`, `battery_voltage=<number>`, or
+`motor_output_voltage=<number>` are also shown in the telemetry panel. The raw
+ADC counts can also be sent as `battery_voltage_value=<number>` and
+`motor_output_voltage_value=<number>`.
 
 Example Arduino response:
 
 ```text
 ok electric_motor_pwm=128 internal_combustion_engine_pwm=64
+```
+
+Example telemetry response:
+
+```text
+telemetry rpm=1234.5 battery_voltage_value=612 battery_voltage=9.24 motor_output_voltage_value=488 motor_output_voltage=7.37
 ```
 
 Default serial settings:

@@ -291,6 +291,17 @@
       word-break: break-word;
     }
 
+    .sensor-readout .telemetry-row {
+      grid-template-columns: 128px minmax(0, 1fr);
+    }
+
+    .sensor-value {
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 780;
+      color: var(--ink);
+    }
+
     .motor-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -650,6 +661,18 @@
             <div class="telemetry-row"><span class="telemetry-key">Reply</span><span></span></div>
           </div>
         </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Telemetry</div>
+            <div class="panel-note">1 Hz sample</div>
+          </div>
+          <div class="panel-body telemetry sensor-readout" id="telemetryReadout">
+            <div class="telemetry-row"><span class="telemetry-key">RPM</span><span class="sensor-value">--</span></div>
+            <div class="telemetry-row"><span class="telemetry-key">Battery</span><span class="sensor-value">--</span></div>
+            <div class="telemetry-row"><span class="telemetry-key">Motor Output</span><span class="sensor-value">--</span></div>
+          </div>
+        </section>
       </div>
 
       <div class="stack">
@@ -745,6 +768,7 @@
       statusPill: document.getElementById("statusPill"),
       statusDetail: document.getElementById("statusDetail"),
       connectionReadout: document.getElementById("connectionReadout"),
+      telemetryReadout: document.getElementById("telemetryReadout"),
       m1Slider: document.getElementById("m1Slider"),
       m1Input: document.getElementById("m1Input"),
       m1Value: document.getElementById("m1Value"),
@@ -775,6 +799,15 @@
     let commandTimer = null;
     let pedalTimer = null;
     const holdTimers = new Map();
+    const telemetry = {
+      rpm: null,
+      voltageDividerValue: null,
+      voltageDividerVoltage: null,
+      batteryVoltageValue: null,
+      batteryVoltage: null,
+      motorOutputVoltageValue: null,
+      motorOutputVoltage: null,
+    };
 
     function requestJson(url, options = {}) {
       return fetch(url, {
@@ -800,7 +833,119 @@
     }
 
     function escapedLine(text) {
-      return String(text || "").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+      return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/\r/g, "\\r")
+        .replace(/\n/g, "\\n");
+    }
+
+    function parseNumberFields(raw) {
+      const result = {};
+      const pairs = String(raw || "").matchAll(/([A-Za-z_][A-Za-z0-9_]*)=(-?\d+(?:\.\d+)?)/g);
+      for (const pair of pairs) {
+        result[pair[1]] = Number(pair[2]);
+      }
+      return result;
+    }
+
+    function voltageFromTelemetry(voltage, rawValue) {
+      if (Number.isFinite(voltage)) {
+        return voltage;
+      }
+      if (Number.isFinite(rawValue)) {
+        return rawValue * (5.148 / 1023) * 3;
+      }
+      return null;
+    }
+
+    function batteryVoltageFromTelemetry() {
+      return voltageFromTelemetry(
+        telemetry.batteryVoltage ?? telemetry.voltageDividerVoltage,
+        telemetry.batteryVoltageValue ?? telemetry.voltageDividerValue
+      );
+    }
+
+    function motorOutputVoltageFromTelemetry() {
+      return voltageFromTelemetry(telemetry.motorOutputVoltage, telemetry.motorOutputVoltageValue);
+    }
+
+    function parseTelemetryLine(raw) {
+      const result = parseNumberFields(raw);
+      if (
+        !Number.isFinite(result.rpm) &&
+        !Number.isFinite(result.voltage_divider_value) &&
+        !Number.isFinite(result.voltage_divider_voltage) &&
+        !Number.isFinite(result.battery_voltage_value) &&
+        !Number.isFinite(result.battery_voltage) &&
+        !Number.isFinite(result.motor_output_voltage_value) &&
+        !Number.isFinite(result.motor_output_voltage)
+      ) {
+        return null;
+      }
+      return result;
+    }
+
+    function applyTelemetryLine(raw) {
+      const parsed = parseTelemetryLine(raw);
+      if (!parsed) return;
+      if (Number.isFinite(parsed.rpm)) telemetry.rpm = parsed.rpm;
+      if (Number.isFinite(parsed.voltage_divider_value)) {
+        telemetry.voltageDividerValue = parsed.voltage_divider_value;
+      }
+      if (Number.isFinite(parsed.voltage_divider_voltage)) {
+        telemetry.voltageDividerVoltage = parsed.voltage_divider_voltage;
+      }
+      if (Number.isFinite(parsed.battery_voltage_value)) {
+        telemetry.batteryVoltageValue = parsed.battery_voltage_value;
+      }
+      if (Number.isFinite(parsed.battery_voltage)) {
+        telemetry.batteryVoltage = parsed.battery_voltage;
+      }
+      if (Number.isFinite(parsed.motor_output_voltage_value)) {
+        telemetry.motorOutputVoltageValue = parsed.motor_output_voltage_value;
+      }
+      if (Number.isFinite(parsed.motor_output_voltage)) {
+        telemetry.motorOutputVoltage = parsed.motor_output_voltage;
+      }
+      renderTelemetry();
+    }
+
+    function applyMotorStateLine(raw) {
+      const parsed = parseNumberFields(raw);
+      const hasElectricMotor = Number.isFinite(parsed.electric_motor_pwm);
+      const hasCombustionEngine = Number.isFinite(parsed.internal_combustion_engine_pwm);
+      if (!hasElectricMotor && !hasCombustionEngine) return;
+
+      setMotorValues(
+        hasElectricMotor ? parsed.electric_motor_pwm : motor1Pwm,
+        hasCombustionEngine ? parsed.internal_combustion_engine_pwm : motor2Pwm,
+        false
+      );
+    }
+
+    function formatTelemetryValue(value, digits = 0) {
+      if (!Number.isFinite(value)) return "--";
+      return value.toLocaleString(undefined, {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      });
+    }
+
+    function formatVoltage(value) {
+      if (!Number.isFinite(value)) return "--";
+      return `${formatTelemetryValue(value, 2)} V`;
+    }
+
+    function renderTelemetry() {
+      els.telemetryReadout.innerHTML = `
+        <div class="telemetry-row"><span class="telemetry-key">RPM</span><span class="sensor-value">${formatTelemetryValue(telemetry.rpm, 1)}</span></div>
+        <div class="telemetry-row"><span class="telemetry-key">Battery</span><span class="sensor-value">${formatVoltage(batteryVoltageFromTelemetry())}</span></div>
+        <div class="telemetry-row"><span class="telemetry-key">Motor Output</span><span class="sensor-value">${formatVoltage(motorOutputVoltageFromTelemetry())}</span></div>
+      `;
     }
 
     function updateUi(push = true) {
@@ -900,6 +1045,8 @@
 
         for (const event of data.events) {
           if (event.type === "rx") {
+            applyMotorStateLine(event.raw);
+            applyTelemetryLine(event.raw);
             renderSerialReadout(data.running, data.lastTx, event.raw);
           } else if (event.type === "error") {
             els.statusDetail.textContent = event.message;

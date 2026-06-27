@@ -112,16 +112,18 @@ class SerialWorker(threading.Thread):
         sample_delay_s = SAMPLE_INTERVAL_MS / 1000
         last_tx_event = 0.0
         last_tx_command: Optional[str] = None
+        last_sent_command: Optional[str] = None
         last_sample_event = 0.0
 
         while not self._stop_event.is_set():
             try:
                 now = time.time()
                 command = self.command()
-                if command:
+                if command and command != last_sent_command:
                     payload = f"{command}\n".encode("utf-8")
                     self._serial.write(payload)
                     self._serial.flush()
+                    last_sent_command = command
                     if command != last_tx_command or now - last_tx_event >= 1.0:
                         self.events.put({"type": "tx", "value": command, "raw": payload.decode("utf-8", errors="replace"), "ts": now})
                         last_tx_command = command
@@ -131,7 +133,14 @@ class SerialWorker(threading.Thread):
                 text = raw.decode("utf-8", errors="replace").strip()
                 if text:
                     now = time.time()
-                    if now - last_sample_event >= sample_delay_s:
+                    is_telemetry = (
+                        "rpm=" in text
+                        or "voltage_divider_value=" in text
+                        or "battery_voltage=" in text
+                        or "motor_output_voltage=" in text
+                    )
+                    is_motor_state = "electric_motor_pwm=" in text or "internal_combustion_engine_pwm=" in text
+                    if is_telemetry or is_motor_state or now - last_sample_event >= sample_delay_s:
                         self.events.put({"type": "rx", "raw": text, "ts": now})
                         last_sample_event = now
             except Exception as exc:
@@ -152,10 +161,26 @@ class SerialWorker(threading.Thread):
         self.events.put({"type": "status", "message": reason})
         delay_s = max(self.config.interval_ms, 20) / 1000
         last_rx_event = 0.0
+        demo_sample = 0
         while not self._stop_event.is_set():
             now = time.time()
             if now - last_rx_event >= SAMPLE_INTERVAL_MS / 1000:
-                self.events.put({"type": "rx", "raw": f"demo echo: {self.command()}", "ts": now})
+                rpm = 900 + (demo_sample % 8) * 35
+                battery_voltage_value = 520 + (demo_sample % 12) * 7
+                motor_output_voltage_value = 420 + (demo_sample % 10) * 9
+                battery_voltage = battery_voltage_value * (5.148 / 1023) * 3
+                motor_output_voltage = motor_output_voltage_value * (5.148 / 1023) * 3
+                self.events.put({
+                    "type": "rx",
+                    "raw": (
+                        f"telemetry rpm={rpm} "
+                        f"battery_voltage_value={battery_voltage_value} battery_voltage={battery_voltage:.2f} "
+                        f"motor_output_voltage_value={motor_output_voltage_value} "
+                        f"motor_output_voltage={motor_output_voltage:.2f}"
+                    ),
+                    "ts": now,
+                })
+                demo_sample += 1
                 last_rx_event = now
             self._stop_event.wait(delay_s)
         self.events.put({"type": "status", "message": "Demo loop stopped"})

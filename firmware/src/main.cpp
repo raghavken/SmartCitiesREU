@@ -7,13 +7,22 @@
 #include <string.h>
 
 const int ELECTRIC_MOTOR_PIN = 5;
+const int BATTERY_VOLTAGE_PIN = A0;
+const int MOTOR_OUTPUT_VOLTAGE_PIN = A1;
+const double ADC_REFERENCE_VOLTAGE = 5.148;
+const double VOLTAGE_DIVIDER_SCALE = 3.0;
+int batteryVoltageValue = 0;
+int motorOutputVoltageValue = 0;
+double batteryVoltage = 0;
+double motorOutputVoltage = 0;
 const int COMBUSTION_ENGINE_PIN = 7;
 const int ENCODER_PIN = 2;
 const int IR_RECEIVE_PIN = 3;
 const double PULSES_PER_REV = 57.2;
 const unsigned long SAMPLE_MS = 1000;
 const size_t SERIAL_LINE_MAX = 96;
-const bool IR_REMOTE_CONTROLS_ELECTRIC_MOTOR = true;
+const bool ELECTRIC_MOTOR_PWM_ACTIVE_LOW = false;
+const bool COMBUSTION_ENGINE_PWM_ACTIVE_LOW = false;
 const uint16_t IR_COMMAND_POWER = 0x45;
 const uint16_t IR_COMMAND_NUMBER_1 = 0x0C;
 const uint16_t IR_COMMAND_NUMBER_2 = 0x18;
@@ -41,21 +50,32 @@ void countPulses() {
     pulses++;
 }
 
-void writeMotorPwm(int pin, int pwm) {
-    pwm = constrain(pwm, 0, 255);
+double dividerVoltageFromAdc(int adcValue) {
+    return adcValue * (ADC_REFERENCE_VOLTAGE / 1023.0) * VOLTAGE_DIVIDER_SCALE;
+}
 
-    if (pwm == 0) {
+void writeMotorPwm(int pin, int pwm, bool activeLow) {
+    pwm = constrain(pwm, 0, 255);
+    int outputPwm = activeLow ? 255 - pwm : pwm;
+
+    if (outputPwm == 0) {
         analogWrite(pin, 0);
         digitalWrite(pin, LOW);
         return;
     }
 
-    analogWrite(pin, pwm);
+    if (outputPwm == 255) {
+        analogWrite(pin, 255);
+        digitalWrite(pin, HIGH);
+        return;
+    }
+
+    analogWrite(pin, outputPwm);
 }
 
 void applyMotorPwm() {
-    writeMotorPwm(ELECTRIC_MOTOR_PIN, electricMotorPwm);
-    writeMotorPwm(COMBUSTION_ENGINE_PIN, combustionEnginePwm);
+    writeMotorPwm(ELECTRIC_MOTOR_PIN, electricMotorPwm, ELECTRIC_MOTOR_PWM_ACTIVE_LOW);
+    writeMotorPwm(COMBUSTION_ENGINE_PIN, combustionEnginePwm, COMBUSTION_ENGINE_PWM_ACTIVE_LOW);
 }
 
 bool parsePwmValue(const char *text, int &value) {
@@ -72,6 +92,13 @@ bool parsePwmValue(const char *text, int &value) {
 
     value = constrain(parsed, 0, 255);
     return true;
+}
+
+bool isCombustionEnginePwmKey(const char *key) {
+    return strcmp(key, "ice_pwm") == 0 ||
+           strcmp(key, "ICE_pwm") == 0 ||
+           strcmp(key, "combustion_engine_pwm") == 0 ||
+           strcmp(key, "internal_combustion_engine_pwm") == 0;
 }
 
 bool parseKeyValue(char *pair, int &parsedElectricMotorPwm, int &parsedCombustionEnginePwm) {
@@ -91,15 +118,11 @@ bool parseKeyValue(char *pair, int &parsedElectricMotorPwm, int &parsedCombustio
     }
 
     if (strcmp(key, "electric_motor_pwm") == 0) {
-        if (IR_REMOTE_CONTROLS_ELECTRIC_MOTOR) {
-            return false;
-        }
-
         parsedElectricMotorPwm = value;
         return true;
     }
 
-    if (strcmp(key, "internal_combustion_engine_pwm") == 0) {
+    if (isCombustionEnginePwmKey(key)) {
         parsedCombustionEnginePwm = value;
         return true;
     }
@@ -130,15 +153,20 @@ void processSerialLine(char *line) {
         return;
     }
 
+    bool commandChanged = parsedElectricMotorPwm != electricMotorPwm ||
+                          parsedCombustionEnginePwm != combustionEnginePwm;
+
     electricMotorPwm = parsedElectricMotorPwm;
     combustionEnginePwm = parsedCombustionEnginePwm;
 
     applyMotorPwm();
 
-    Serial.print("ok electric_motor_pwm=");
-    Serial.print(electricMotorPwm);
-    Serial.print(" internal_combustion_engine_pwm=");
-    Serial.println(combustionEnginePwm);
+    if (commandChanged) {
+        Serial.print("ok electric_motor_pwm=");
+        Serial.print(electricMotorPwm);
+        Serial.print(" internal_combustion_engine_pwm=");
+        Serial.println(combustionEnginePwm);
+    }
 }
 
 void readSerialCommands() {
@@ -196,7 +224,7 @@ int getElectricMotorPwmForStage(int stage) {
 void setElectricMotorStageFromRemote(int stage) {
     electricMotorStage = constrain(stage, 0, 9);
     electricMotorPwm = getElectricMotorPwmForStage(electricMotorStage);
-    writeMotorPwm(ELECTRIC_MOTOR_PIN, electricMotorPwm);
+    writeMotorPwm(ELECTRIC_MOTOR_PIN, electricMotorPwm, ELECTRIC_MOTOR_PWM_ACTIVE_LOW);
 
     Serial.print("ir electric_motor_stage=");
     Serial.print(electricMotorStage);
@@ -288,6 +316,8 @@ void setup() {
     Serial.begin(115200);
 
     pinMode(ELECTRIC_MOTOR_PIN, OUTPUT);
+    pinMode(BATTERY_VOLTAGE_PIN, INPUT);
+    pinMode(MOTOR_OUTPUT_VOLTAGE_PIN, INPUT);
     pinMode(COMBUSTION_ENGINE_PIN, OUTPUT);
     pinMode(ENCODER_PIN, INPUT_PULLUP);
 
@@ -303,6 +333,11 @@ void loop() {
     readSerialCommands();
     readIrRemote();
 
+    batteryVoltageValue = analogRead(BATTERY_VOLTAGE_PIN);
+    motorOutputVoltageValue = analogRead(MOTOR_OUTPUT_VOLTAGE_PIN);
+    batteryVoltage = dividerVoltageFromAdc(batteryVoltageValue);
+    motorOutputVoltage = dividerVoltageFromAdc(motorOutputVoltageValue);
+
     // RPM calculation every 1000 ms
     unsigned long now = millis();
 
@@ -315,7 +350,16 @@ void loop() {
         double revs = pulseCount / PULSES_PER_REV;
         rpm = revs * (60000.0 / SAMPLE_MS);
 
-        Serial.println(rpm);
+        Serial.print("telemetry rpm=");
+        Serial.print(rpm);
+        Serial.print(" battery_voltage_value=");
+        Serial.print(batteryVoltageValue);
+        Serial.print(" battery_voltage=");
+        Serial.print(batteryVoltage);
+        Serial.print(" motor_output_voltage_value=");
+        Serial.print(motorOutputVoltageValue);
+        Serial.print(" motor_output_voltage=");
+        Serial.println(motorOutputVoltage);
 
         lastRPMTime = now;
     }
